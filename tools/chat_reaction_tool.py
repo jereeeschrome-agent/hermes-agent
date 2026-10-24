@@ -60,14 +60,14 @@ def react_tool(emoji: str) -> str:
 REACT_SCHEMA = {
     "name": "react",
     "description": (
-        "React with an emoji to the chat message you are answering. Use it the way people do in a "
-        "chat app, when a reaction is what a person would do: a thank-you gets a ❤️, a plan you're on "
-        "board with gets a 👍, something funny gets a 😂. If the reaction says it all, it IS the reply: "
-        "end your turn with exactly NO_REPLY instead of a redundant 'you're welcome!' or 'sounds good!'. "
-        "If the message still needs an answer, react and then answer as usual. Use it like a person "
-        "would: occasionally, when felt, not on every message, and never as a status signal. Never "
-        "narrate it ('I reacted with...'): the emoji on the message is the whole point. One reaction per "
-        "message: a different emoji replaces yours, an empty string removes it."
+        "React with an emoji to the chat message you are answering. When the message needs no "
+        "answer (a thank-you, an 'ok' or 'will do', a good night, a joke, a bare emoji), react "
+        "INSTEAD of replying: call react with a fitting emoji (❤️, 👍, 😂, 🙏), then end your turn "
+        "with exactly NO_REPLY so no text is sent. A 'you're welcome!' or 'sounds good!' after a "
+        "reaction is the noise this replaces. When the message needs an answer, reply as usual; "
+        "reacting as well is optional. Never narrate a reaction ('I reacted with...') and never use "
+        "one as a status signal. One reaction per message: a different emoji replaces yours, an "
+        "empty string removes it."
     ),
     "parameters": {
         "type": "object",

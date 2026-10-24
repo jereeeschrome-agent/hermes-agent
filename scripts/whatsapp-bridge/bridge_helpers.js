@@ -256,6 +256,37 @@ export function buildLocationPayload({ latitude, longitude, name, address } = {}
   return { location };
 }
 
+/**
+ * Reaction to message `messageId` in `chatId` → `{ jid, content }` for sock.sendMessage.
+ * An empty `emoji` removes our reaction (WhatsApp keeps one per sender per message).
+ *
+ * A reaction names its target by the full WAMessageKey: a group reaction must carry the
+ * message's author (key.participant) and a self-chat message is fromMe. The bounded store
+ * holds the key Baileys delivered for every message handed to Hermes, so that key is used
+ * verbatim; it also pins the target to `chatId`, so a stored message from another chat is
+ * refused instead of reacted to. A DM that aged out of the store is rebuilt from its ids;
+ * a group message cannot be (its author is unknown).
+ */
+export function buildReactionPayload({ chatId, messageId, emoji, messageStore, selfChat = false } = {}) {
+  if (!chatId || !messageId) throw new Error('chatId and messageId are required');
+  if (typeof emoji !== 'string') throw new Error('emoji must be a string ("" removes the reaction)');
+  const stored = messageStore?.get(messageId)?.key;
+  let key;
+  if (stored) {
+    if (normalizeWhatsAppId(stored.remoteJid) !== normalizeWhatsAppId(chatId)) {
+      throw new Error(`message ${messageId} is not in chat ${chatId}`);
+    }
+    key = stored;
+  } else if (String(chatId).endsWith('@g.us')) {
+    throw new Error(
+      `message ${messageId} is no longer in the bridge's recent-message store; a group reaction needs its author`,
+    );
+  } else {
+    key = { remoteJid: chatId, id: messageId, fromMe: selfChat };
+  }
+  return { jid: key.remoteJid, content: { react: { text: emoji, key } } };
+}
+
 function textFromQuotedMessage(quotedMessage) {
   const content = unwrapMessageEnvelopes(quotedMessage);
   if (!content) return '';

@@ -6,6 +6,7 @@ other's routing ids.  ``get_session_env`` is a drop-in for ``os.getenv``.
 """
 
 import os
+import weakref
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Iterator
@@ -183,6 +184,31 @@ def reset_session_vars() -> None:
     _SESSION_ASYNC_DELIVERY.set(_UNSET)
     _SESSION_HISTORY_DELIVERY.set(_UNSET)
     _runtime_cwd("clear_session_cwd")
+
+
+def bind_turn_message_id(message_id: str) -> None:
+    """Rebind ``HERMES_SESSION_MESSAGE_ID`` in THIS context only.  A queued follow-up turn runs
+    inside the turn that opened its chain, whose session env names the opening message; the
+    follow-up's own executor context rebinds it so tools anchored on the message a turn answers
+    (reactions, reply anchors) see the follow-up's message instead."""
+    _SESSION_MESSAGE_ID.set(message_id)
+
+
+# Weakref to the adapter that answers the running turn; bound per turn, never a process global.
+_TURN_DELIVERY_ADAPTER: ContextVar[Any] = ContextVar("HERMES_TURN_DELIVERY_ADAPTER", default=None)
+
+
+def bind_turn_delivery_adapter(adapter: Any) -> None:
+    """Bind, in THIS context only, the adapter that answers the running turn (the runner's
+    ``_delivery_adapter_for`` of its live source).  Tools acting on the turn's own chat use it:
+    a profile-keyed lookup cannot find a shared bot that routes the chat to this profile."""
+    _TURN_DELIVERY_ADAPTER.set(weakref.ref(adapter) if adapter is not None else None)
+
+
+def turn_delivery_adapter() -> Any:
+    """The adapter bound by :func:`bind_turn_delivery_adapter`, or ``None`` outside a turn."""
+    ref = _TURN_DELIVERY_ADAPTER.get()
+    return ref() if ref is not None else None
 
 
 def get_session_env(name: str, default: str = "") -> str:

@@ -9,6 +9,7 @@ import platform
 import re
 import signal
 import subprocess
+from collections import OrderedDict
 from contextlib import suppress
 from functools import wraps
 from pathlib import Path
@@ -333,6 +334,8 @@ _QUOTED_MIME_BY_BRIDGE_KIND = {
     "image": "image/jpeg", "video": "video/mp4", "gif": "video/mp4", "audio": "audio/ogg", "ptt": "audio/ogg",
     "document": "application/octet-stream", "sticker": "image/webp",
 }
+# Messages whose current agent reaction is remembered (a turn is judged right after it ends).
+_AGENT_REACTION_MEMORY = 256
 
 
 def _needs_bridge(method):
@@ -385,6 +388,8 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         rr = extra.get("send_read_receipts", False)
         self._send_read_receipts = rr if isinstance(rr, bool) else str(rr or "").strip().lower() in {"1", "true", "yes", "on"}
         self._mention_patterns = self._compile_mention_patterns()
+        # (chat jid, message id) -> the emoji our agent reaction shows there; see agent_reaction().
+        self._agent_reactions: OrderedDict[tuple[str, str], str] = OrderedDict()
         self._message_queue: asyncio.Queue = asyncio.Queue()
         self._bridge_log_fh = self._bridge_log = self._poll_task = self._http_session = None
         # Set by disconnect() before SIGTERMing so _check_managed_bridge_exit() can tell an intentional exit (-15/-2/0) from a crash.
@@ -814,6 +819,39 @@ class WhatsAppAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                 return SendResult(success=True, message_id=message_id) if resp.status == 200 else SendResult(success=False, error=await resp.text())
         except Exception as e:
             return SendResult(success=False, error=str(e))
+
+    # -- Agent-facing reactions (the ``react`` tool, send_message action="react"). WhatsApp keeps one
+    # reaction per sender per message: a new emoji replaces ours and "" retracts it.
+
+    async def add_reaction(self, chat_id: str, emoji: str, message_id: Optional[str] = None) -> dict[str, Any]:
+        """React with ``emoji`` to ``message_id``, in a DM or a group."""
+        return await self._set_reaction(chat_id, message_id, emoji)
+
+    async def remove_reaction(self, chat_id: str, message_id: Optional[str] = None) -> dict[str, Any]:
+        """Retract our reaction from ``message_id``."""
+        return await self._set_reaction(chat_id, message_id, "")
+
+    def agent_reaction(self, chat_id: str, message_id: str) -> Optional[str]:
+        """The emoji our reaction currently shows on ``message_id``, else None. The gateway asks after a
+        turn: a reaction on the message being answered is a visible reply, so a silence marker may stand."""
+        return self._agent_reactions.get((to_whatsapp_jid(chat_id), str(message_id)))
+
+    async def _set_reaction(self, chat_id: str, message_id: Optional[str], emoji: str) -> dict[str, Any]:
+        if not message_id:
+            return {"success": False, "error": "message_id is required (the WhatsApp adapter keeps no chat history)"}
+        if unavailable := await self._bridge_unavailable():
+            return {"success": False, "error": unavailable}
+        jid = to_whatsapp_jid(chat_id)
+        result = await self._post_bridge_message("react", {"chatId": jid, "messageId": message_id, "emoji": emoji}, timeout=30)
+        if not result.success:
+            return {"success": False, "error": result.error}
+        key = (jid, str(message_id))
+        self._agent_reactions.pop(key, None)
+        if emoji:
+            self._agent_reactions[key] = emoji
+            while len(self._agent_reactions) > _AGENT_REACTION_MEMORY:
+                self._agent_reactions.popitem(last=False)
+        return {"success": True, "message_id": message_id, "emoji": emoji}
 
     @_needs_bridge
     async def _send_media_to_bridge(self, chat_id: str, file_path: str, media_type: str, caption: Optional[str] = None, file_name: Optional[str] = None) -> SendResult:

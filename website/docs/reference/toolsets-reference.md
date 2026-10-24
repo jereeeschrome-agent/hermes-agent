@@ -53,6 +53,7 @@ Or in-session:
 | Toolset | Tools | Purpose |
 |---------|-------|---------|
 | `browser` | `browser_cdp`, `browser_dialog`, `browser_exec`, `browser_vault` | Core browser automation. `browser_exec` drives the browser by running Python with pre-imported helpers (offered only to sessions that also have `terminal`); `browser_cdp`, `browser_dialog` and `browser_vault` operate on the same browser session. `browser_vault` rides with the browser for credential forms and is deferred behind tool search by default. Disabling this toolset is how you turn browsing off. Quick lookups belong to the `web`/`search` toolsets — `web_search` is deliberately NOT a member, so `disabled_toolsets: [browser]` cannot strip it (#64503). |
+| `chat_reactions` | `react` | React with an emoji to the chat message the agent is answering (WhatsApp DMs and groups). When the reaction says it all, the agent sends no text. WhatsApp sessions only; never deferred behind `tool_search`; subagents never get it. Remove it with `agent.disabled_toolsets: [chat_reactions]`. |
 | `clarify` | `clarify` | Ask the user a question when the agent needs clarification. |
 | `code_execution` | `execute_code` | Run Python scripts that call Hermes tools programmatically. |
 | `connections` | `manage_connections` | Connect the user to apps: managed connector accounts through the Nous gateway, and local MCP servers from the catalog. It can add a second named account of an app and rename accounts. On the desktop every action is a card that blocks until the user settles it; off the desktop managed actions return a connect link per app. |
@@ -100,7 +101,7 @@ Platform toolsets define the complete tool configuration for a deployment target
 | `hermes-telegram` | Same as `hermes-cli`. |
 | `hermes-discord` | Adds `discord` and `discord_admin` on top of `hermes-cli`. |
 | `hermes-slack` | Same as `hermes-cli`. |
-| `hermes-whatsapp` | Same as `hermes-cli`. |
+| `hermes-whatsapp` | Adds `react` (`chat_reactions`) on top of `hermes-cli`. |
 | `hermes-signal` | Same as `hermes-cli`. |
 | `hermes-matrix` | Same as `hermes-cli`. |
 | `hermes-mattermost` | Same as `hermes-cli`. |

@@ -7,6 +7,7 @@ Covers:
 """
 
 import asyncio
+from collections import OrderedDict
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,6 +60,7 @@ def _make_adapter():
     adapter._allow_from = set()
     adapter._group_policy = "open"
     adapter._group_allow_from = set()
+    adapter._agent_reactions = OrderedDict()
     return adapter
 
 class _AsyncCM:

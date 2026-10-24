@@ -7,7 +7,7 @@ that answers the turn lets a silence marker stand (``gateway/run_turn_persistenc
 
 import json
 
-from gateway.session_context import get_session_env
+from gateway.session_context import get_session_env, turn_delivery_adapter
 from tools.registry import registry, tool_error
 
 # Longest ZWJ sequences (families, couples with skin tones) stay under this many code points.
@@ -30,22 +30,19 @@ def react_tool(emoji: str) -> str:
     message_id = get_session_env("HERMES_SESSION_MESSAGE_ID", "")
     if not (platform_name and chat_id and message_id):
         return tool_error("This turn has no chat message to react to.")
-    from tools.send_message_senders import _live_adapter
-    from tools.send_message_tool import _dispatch_on_gateway_loop, _platform_enum
-    platform, err = _platform_enum(platform_name)
-    if err:
-        return tool_error(err)
-    # The live adapter of THIS turn's profile (multiplex-aware), never another profile's bot.
-    runner, adapter = _live_adapter(platform)
-    react = getattr(adapter, "add_reaction" if emoji else "remove_reaction", None)
+    # The bot that answers THIS turn, bound by the gateway when the turn started: with a shared bot
+    # routing the chat to this profile, a lookup by the active profile finds no adapter at all.
+    react = getattr(turn_delivery_adapter(), "add_reaction" if emoji else "remove_reaction", None)
     if not callable(react):
         return tool_error(f"Reactions are not available on {platform_name} right now.")
     kwargs = {"chat_id": chat_id, "message_id": message_id, **({"emoji": emoji} if emoji else {})}
+    from gateway.run import _gateway_runner_ref
     from model_tools import _run_async
+    from tools.send_message_tool import _dispatch_on_gateway_loop
     # The adapter's HTTP session belongs to the gateway loop; awaiting it from the tool's worker
     # loop fails, so the call is dispatched there. Exceptions surface through the registry.
     result = _run_async(_dispatch_on_gateway_loop(
-        runner, lambda: react(**kwargs), "react: failed to schedule on the gateway loop"))
+        _gateway_runner_ref(), lambda: react(**kwargs), "react: failed to schedule on the gateway loop"))
     if not (isinstance(result, dict) and result.get("success")):
         detail = result.get("error") if isinstance(result, dict) else None
         return tool_error(f"Reaction failed: {detail or 'unknown error'}")

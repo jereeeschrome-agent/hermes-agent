@@ -1,13 +1,14 @@
 """The ``react`` tool: a native emoji reaction on the chat message a messaging turn answers.
 
-Covers the handler through the registry (target = this turn's message, removal, refusals), the
-gateway-loop dispatch the adapter's HTTP session needs, and the session gating that keeps the tool on
-WhatsApp sessions only, ambient (never deferred) and away from subagents.
+Covers the handler through the registry (target = this turn's message and bot, removal, refusals),
+the gateway-loop dispatch the adapter's HTTP session needs, and the session gating that keeps the
+tool on WhatsApp sessions only, ambient (never deferred) and away from subagents.
 """
 
 import asyncio
 import json
 import threading
+from contextvars import copy_context
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -15,8 +16,7 @@ import pytest
 
 import model_tools
 import toolsets
-from gateway.config import Platform
-from gateway.session_context import clear_session_vars, set_session_vars
+from gateway.session_context import bind_turn_delivery_adapter, clear_session_vars, set_session_vars
 from tools.registry import registry
 
 GROUP = "120363000000000000@g.us"
@@ -39,6 +39,10 @@ class _ReactingAdapter:
         return self._result or {"success": True, "message_id": message_id}
 
 
+class _NoReactionsAdapter:
+    """An adapter that cannot react."""
+
+
 @pytest.fixture
 def whatsapp_turn():
     """Session env of a WhatsApp group turn triggered by message MSG1."""
@@ -47,29 +51,41 @@ def whatsapp_turn():
     clear_session_vars(tokens)
 
 
-def _gateway_with(adapter, loop=None):
-    runner = SimpleNamespace(adapters={Platform("whatsapp"): adapter}, _gateway_loop=loop)
-    return patch("gateway.run._gateway_runner_ref", lambda: runner)
+def _react(emoji, adapter=None, *, loop=None, runner=None):
+    """Dispatch ``react`` inside a turn answered by *adapter* (bound as the gateway binds it)."""
+    def _in_turn():
+        bind_turn_delivery_adapter(adapter)
+        return json.loads(registry.dispatch("react", {"emoji": emoji}))
 
-
-def _react(emoji):
-    return json.loads(registry.dispatch("react", {"emoji": emoji}))
+    with patch("gateway.run._gateway_runner_ref", lambda: runner or SimpleNamespace(_gateway_loop=loop)):
+        return copy_context().run(_in_turn)
 
 
 def test_reacts_to_the_message_this_turn_answers(whatsapp_turn):
     adapter = _ReactingAdapter()
-    with _gateway_with(adapter):
-        result = _react("❤️")
+    result = _react("❤️", adapter)
 
     assert adapter.calls == [("add", GROUP, "MSG1", "❤️")]
     assert result["success"] is True and result["reacted"] == "❤️"
     assert "NO_REPLY" in result["note"]
 
 
+def test_reacts_through_the_bot_answering_the_turn_when_a_shared_bot_routes_the_chat(whatsapp_turn):
+    """``profile_routes`` can hand a chat on the default profile's WhatsApp bot to another profile
+    that owns no WhatsApp adapter; a lookup by the active profile then finds nothing. The bot
+    answering the turn is the one that reacts (live regression)."""
+    adapter = _ReactingAdapter()
+    routed_runner = SimpleNamespace(adapters={}, _gateway_loop=None, _authorization_adapter=lambda *_a: None)
+
+    result = _react("👍", adapter, runner=routed_runner)
+
+    assert result["success"] is True
+    assert adapter.calls == [("add", GROUP, "MSG1", "👍")]
+
+
 def test_empty_emoji_removes_our_reaction(whatsapp_turn):
     adapter = _ReactingAdapter()
-    with _gateway_with(adapter):
-        result = _react("")
+    result = _react("", adapter)
 
     assert adapter.calls == [("remove", GROUP, "MSG1")]
     assert result == {"success": True, "removed": True}
@@ -78,8 +94,7 @@ def test_empty_emoji_removes_our_reaction(whatsapp_turn):
 @pytest.mark.parametrize("text", ["heart", ":+1:", "<3", "thanks 👍", "👍 👍"])
 def test_non_emoji_text_is_refused_before_it_reaches_the_chat(whatsapp_turn, text):
     adapter = _ReactingAdapter()
-    with _gateway_with(adapter):
-        result = _react(text)
+    result = _react(text, adapter)
 
     assert "error" in result
     assert adapter.calls == []
@@ -87,9 +102,7 @@ def test_non_emoji_text_is_refused_before_it_reaches_the_chat(whatsapp_turn, tex
 
 @pytest.mark.parametrize("emoji", ["👍🏽", "👨‍👩‍👧‍👦", "🇳🇱", "1️⃣", "❤️‍🔥"])
 def test_composed_emoji_are_accepted(whatsapp_turn, emoji):
-    adapter = _ReactingAdapter()
-    with _gateway_with(adapter):
-        result = _react(emoji)
+    result = _react(emoji, _ReactingAdapter())
 
     assert result.get("success") is True, result
 
@@ -98,8 +111,7 @@ def test_turn_without_a_triggering_message_has_nothing_to_react_to():
     tokens = set_session_vars(platform="whatsapp", chat_id=GROUP)
     try:
         adapter = _ReactingAdapter()
-        with _gateway_with(adapter):
-            result = _react("👍")
+        result = _react("👍", adapter)
     finally:
         clear_session_vars(tokens)
 
@@ -107,17 +119,15 @@ def test_turn_without_a_triggering_message_has_nothing_to_react_to():
     assert adapter.calls == []
 
 
-def test_adapter_without_reactions_is_an_error(whatsapp_turn):
-    with _gateway_with(object()):
-        result = _react("👍")
+@pytest.mark.parametrize("adapter", [None, _NoReactionsAdapter()], ids=["outside-a-turn", "adapter-cannot-react"])
+def test_no_reacting_adapter_is_an_error(whatsapp_turn, adapter):
+    result = _react("👍", adapter)
 
     assert "not available" in result["error"]
 
 
 def test_adapter_failure_reaches_the_model(whatsapp_turn):
-    adapter = _ReactingAdapter(result={"success": False, "error": "message MSG1 is not in chat"})
-    with _gateway_with(adapter):
-        result = _react("👍")
+    result = _react("👍", _ReactingAdapter(result={"success": False, "error": "message MSG1 is not in chat"}))
 
     assert "not in chat" in result["error"]
 
@@ -130,8 +140,7 @@ def test_reaction_runs_on_the_gateway_loop(whatsapp_turn):
     thread.start()
     adapter = _ReactingAdapter()
     try:
-        with _gateway_with(adapter, loop=gateway_loop):
-            result = _react("👍")
+        result = _react("👍", adapter, loop=gateway_loop)
     finally:
         gateway_loop.call_soon_threadsafe(gateway_loop.stop)
         thread.join(timeout=5)

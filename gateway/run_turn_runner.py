@@ -1170,6 +1170,18 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
         unique_tags = (["[[audio_as_voice]]"] if has_voice_directive else []) + list(dict.fromkeys(media_tags))
         return final_response + "\n" + "\n".join(unique_tags)
 
+    def _bind_turn_chat_target(self) -> None:
+        """Bind, in this turn's own executor context, what a tool acting on the turn's chat needs:
+        the adapter that answers it (the receiving bot, which a profile lookup misses when a shared
+        bot routes the chat here) and, for a queued follow-up, its own message id (the session env
+        still names the chain's opener)."""
+        from gateway.session_context import bind_turn_delivery_adapter, bind_turn_message_id
+        resolve = getattr(self._runner, "_delivery_adapter_for", None)
+        if callable(resolve):  # bare runner stubs carry no authz mixin
+            bind_turn_delivery_adapter(resolve(self._ctx.source))
+        if self._ctx._interrupt_depth and self._ctx.source.message_id:
+            bind_turn_message_id(str(self._ctx.source.message_id))
+
     def run_sync(self):
         from contextlib import ExitStack
         from gateway.session_policy import bind_turn_workspace, policy_for_source, policy_scope, workspace_unavailable_result
@@ -1187,10 +1199,7 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
             else:
                 scope.enter_context(api_policy_scope())
                 bind_turn_workspace(policy, self._ctx.session_id)
-                if self._ctx._interrupt_depth and self._ctx.source.message_id:
-                    # A queued follow-up answers its own message; this executor context is the turn's own copy.
-                    from gateway.session_context import bind_turn_message_id
-                    bind_turn_message_id(str(self._ctx.source.message_id))
+                self._bind_turn_chat_target()
                 result = self._run_sync_scoped()
             from gateway.session_results import execution_result
             captured = execution_result.get()

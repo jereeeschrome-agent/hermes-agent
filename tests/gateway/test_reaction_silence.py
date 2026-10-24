@@ -110,6 +110,32 @@ def test_queued_follow_up_turn_targets_its_own_message(monkeypatch):
         clear_session_vars(tokens)
 
 
+def test_turn_binds_the_bot_that_answers_it(monkeypatch):
+    """Tools acting on the turn's own chat (``react``) reach the adapter the gateway answers this
+    source with — the receiving bot, also when a shared bot routes the chat to another profile —
+    bound in the turn's own context only."""
+    from contextvars import copy_context
+
+    from gateway.run_turn_runner import TurnRunner
+    from gateway.session_context import turn_delivery_adapter
+
+    answering, seen = _Reactions(), {}
+
+    def _turn_body(self):
+        seen["adapter"] = turn_delivery_adapter()
+        return {"final_response": ""}
+
+    monkeypatch.setattr(TurnRunner, "_run_sync_scoped", _turn_body)
+    runner = SimpleNamespace(
+        session_authority=None,
+        _delivery_adapter_for=lambda source: answering if source.chat_id == CHAT else None)
+    ctx = SimpleNamespace(source=_source(), session_id="sid", session_key=KEY, _interrupt_depth=0)
+    copy_context().run(TurnRunner(runner, ctx).run_sync)
+
+    assert seen["adapter"] is answering
+    assert turn_delivery_adapter() is None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reacted, silent", [(True, True), (False, False)])
 async def test_queued_first_response_honours_the_reaction(reacted, silent):

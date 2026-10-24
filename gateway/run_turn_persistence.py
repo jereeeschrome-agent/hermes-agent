@@ -93,9 +93,9 @@ class GatewayTurnPersistenceMixin:
         from gateway.run_turn import _unexpected_silence_reply
         _silence_kind = agent_result.get("queued_terminal_display_kind", persist_user_display_kind)
         _silence_reply_expected = agent_result.get("queued_terminal_reply_expected", reply_expected)
-        _answered_id = agent_result.get("queued_terminal_inbound_id", source.message_id)
         if _intentional_silence and not self._turn_silence_allowed(
-                source, _silence_kind, _silence_reply_expected, _answered_id):
+                source, _silence_kind, _silence_reply_expected,
+                agent_result.get("queued_terminal_inbound_id", source.message_id)):
             logger.warning(
                 "silence marker rejected on a user turn: platform=%s chat=%s",
                 _platform_name, source.chat_id or "unknown",

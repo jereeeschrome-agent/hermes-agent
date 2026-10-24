@@ -192,23 +192,40 @@ def _delivery_platform_routed_from_primary_gateway(platform_name: str) -> bool:
     )
 
 
+# In-process surfaces that hold no bot credential: a satellite serving only these (e.g. a desktop
+# app LOCAL adapter) is still credentialless and keeps borrowing the primary's routed adapters.
+_NON_CREDENTIAL_PLATFORMS = frozenset({"local", "api_server", "webhook"})
+
+
+def has_own_messaging_adapter(adapters) -> bool:
+    """True when *adapters* holds a credential-bearing platform adapter of the profile's own."""
+    return any(
+        str(getattr(p, "value", p)).lower() not in _NON_CREDENTIAL_PLATFORMS
+        for p in (adapters or {})
+    )
+
+
 class SharedRouteAdapters:
     """Read-only adapter map for a credentialless satellite profile. ``get(platform, target)``
     resolves the PRIMARY adapter iff the inbound route matcher (``ProfileRoute.matches``) accepts
     the target; anything else (unmatched target, disabled route, other profile, or target-less
-    ``get(platform)``) is a miss — fail closed, never the default bot.
+    ``get(platform)``) is a miss — fail closed, never the default bot. The satellite's own
+    non-credential adapters (``own``, e.g. LOCAL) are served first and as-is.
 
     See #101113.
     """
 
-    def __init__(self, primary_adapters, routes) -> None:
+    def __init__(self, primary_adapters, routes, own_adapters=None) -> None:
         self._primary = dict(primary_adapters or {})
         self._routes = list(routes or [])
+        self.own = dict(own_adapters or {})
 
     def __bool__(self) -> bool:
-        return bool(self._primary) and bool(self._routes)
+        return bool(self.own) or (bool(self._primary) and bool(self._routes))
 
     def get(self, platform, target=None, default=None):
+        if platform in self.own:
+            return self.own[platform]
         if not target:
             return default
         adapter = self._primary.get(platform)
@@ -224,8 +241,10 @@ class SharedRouteAdapters:
         for route in self._routes:
             if str(route.platform).lower() != platform_key:
                 continue
-            if not (route.chat_id or route.thread_id):
+            if route.guild_id and not (route.chat_id or route.thread_id):
                 continue  # guild-only routes are not target-exact
+            # A platform-wide route (no guild/chat/thread) maps every target on the platform to
+            # this profile, so ``matches`` below authorizes any target.
             if route.matches(
                 str(route.platform), guild_id=route.guild_id, chat_id=chat_id, thread_id=thread_id,
             ):

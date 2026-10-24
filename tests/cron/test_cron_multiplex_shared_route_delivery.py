@@ -160,3 +160,40 @@ def test_live_native_adapter_without_platform_block_is_not_treated_as_disabled()
         {"id": "j"}, Platform.DISCORD, "discord", {"platform": "discord", "chat_id": "C1"},
         {Platform.DISCORD: adapter}, config)
     assert resolved is None and "not configured/enabled" in err
+
+
+def test_platform_wide_route_authorizes_any_target_but_guild_only_does_not():
+    """A route with no guild/chat/thread sends every chat on the platform to the satellite, so its
+    cron output must reach any target; guild-only and user-only routes stay fail-closed."""
+    from gateway.profile_routing import parse_profile_routes
+
+    primary = object()
+    target = {"platform": "whatsapp", "chat_id": "142777782399045@lid"}
+    wide = parse_profile_routes([{"platform": "whatsapp", "profile": "puggy"}])
+    assert SharedRouteAdapters({Platform.WHATSAPP: primary}, wide).get(Platform.WHATSAPP, target) is primary
+    for narrow in ({"guild_id": "G1"}, {"user_id": "U1"}):
+        routes = parse_profile_routes([{"platform": "whatsapp", "profile": "puggy", **narrow}])
+        assert SharedRouteAdapters({Platform.WHATSAPP: primary}, routes).get(Platform.WHATSAPP, target) is None
+
+
+def test_local_only_satellite_still_borrows_primary_for_routed_targets():
+    """A desktop-app LOCAL adapter carries no bot credential: a satellite holding only it must still
+    deliver routed WhatsApp cron output through the primary bot, and keep its own LOCAL adapter."""
+    from cron.scheduler_delivery import _resolve_target_transport
+    from cron.scheduler_preflight import has_own_messaging_adapter
+    from gateway.profile_routing import parse_profile_routes
+
+    primary, local = object(), object()
+    own = {Platform.LOCAL: local}
+    assert not has_own_messaging_adapter(own)
+    assert has_own_messaging_adapter({Platform.WHATSAPP: object()})
+    routes = parse_profile_routes([{"platform": "whatsapp", "profile": "puggy"}])
+    shared = SharedRouteAdapters({Platform.WHATSAPP: primary}, routes, own_adapters=own)
+    assert shared.get(Platform.LOCAL) is local
+
+    config = MagicMock()
+    config.platforms = {}
+    resolved, err = _resolve_target_transport(
+        {"id": "j"}, Platform.WHATSAPP, "whatsapp",
+        {"platform": "whatsapp", "chat_id": "142777782399045@lid"}, shared, config)
+    assert err is None and resolved[2] is primary

@@ -371,9 +371,16 @@ def _run_claimed_job(job: dict[str, Any], extra_prompt: Optional[str] = None) ->
             # only — the same grant the ticker's ``tick_adapters_for`` makes, never the full map.
             if getattr(runner, "_is_shared_bot_satellite", lambda _p: False)(profile):
                 from cron.scheduler_preflight import (
-                    SharedRouteAdapters, _primary_profile_routes_for_current_home)
+                    SharedRouteAdapters, _primary_profile_routes_for_current_home,
+                    has_own_messaging_adapter)
 
-                adapters = SharedRouteAdapters(adapters, _primary_profile_routes_for_current_home())
+                own = (getattr(runner, "_profile_adapters_map", dict)() or {}).get(profile) or {}
+                if has_own_messaging_adapter(own):
+                    adapters = SharedRouteAdapters(adapters, _primary_profile_routes_for_current_home())
+                else:  # only credential-less adapters (e.g. LOCAL): borrow the primary's routed bot
+                    primary = runner._primary_adapters() if hasattr(runner, "_primary_adapters") else adapters
+                    adapters = SharedRouteAdapters(
+                        primary, _primary_profile_routes_for_current_home(), own_adapters=own)
         gateway_loop = getattr(runner, "_gateway_loop", None) if runner is not None else None
         try:
             # run_one_job records last_run_at/last_status via mark_job_run; `job` is the

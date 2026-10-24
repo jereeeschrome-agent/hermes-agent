@@ -1187,6 +1187,10 @@ class TurnRunner(GatewayTurnProgressMixin, GatewaySessionAgentMixin):
             else:
                 scope.enter_context(api_policy_scope())
                 bind_turn_workspace(policy, self._ctx.session_id)
+                if self._ctx._interrupt_depth and self._ctx.source.message_id:
+                    # A queued follow-up answers its own message; this executor context is the turn's own copy.
+                    from gateway.session_context import bind_turn_message_id
+                    bind_turn_message_id(str(self._ctx.source.message_id))
                 result = self._run_sync_scoped()
             from gateway.session_results import execution_result
             captured = execution_result.get()

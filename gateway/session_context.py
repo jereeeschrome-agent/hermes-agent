@@ -185,6 +185,14 @@ def reset_session_vars() -> None:
     _runtime_cwd("clear_session_cwd")
 
 
+def bind_turn_message_id(message_id: str) -> None:
+    """Rebind ``HERMES_SESSION_MESSAGE_ID`` in THIS context only.  A queued follow-up turn runs
+    inside the turn that opened its chain, whose session env names the opening message; the
+    follow-up's own executor context rebinds it so tools anchored on the message a turn answers
+    (reactions, reply anchors) see the follow-up's message instead."""
+    _SESSION_MESSAGE_ID.set(message_id)
+
+
 def get_session_env(name: str, default: str = "") -> str:
     """Read a session var by legacy ``HERMES_SESSION_*`` name; drop-in for os.getenv.  The
     ContextVar wins if ever set here (even to ``""``); else ``os.environ``; else *default*."""

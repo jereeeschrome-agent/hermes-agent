@@ -345,6 +345,14 @@ The single `video_generate` tool covers both modalities — pass `image_url` to 
 |------|-------------|----------------------|
 | `text_to_speech` | Convert text to speech audio. Returns a MEDIA: path that the platform delivers as a voice message. On Telegram it plays as a voice bubble, on Discord/WhatsApp as an audio attachment. In CLI mode, saves to ~/voice-memos/. Voice and provider… | — |
 
+## `chat_reactions` toolset
+
+Registered on the `hermes-whatsapp` platform toolset and offered to WhatsApp sessions only.
+
+| Tool | Description | Requires environment |
+|------|-------------|----------------------|
+| `react` | React with a single emoji to the message the agent is answering, in a DM or a group; an empty string removes the agent's reaction. When the reaction is the whole reply the agent ends with `NO_REPLY` and sends no text. Never rendered as a tool-progress message. | — |
+
 ## `discord` toolset
 
 Registered on the `hermes-discord` platform toolset (gateway only). Uses the same bot token as the messaging adapter.

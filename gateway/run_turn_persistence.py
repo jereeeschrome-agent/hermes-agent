@@ -54,6 +54,18 @@ def _acp_launch(runner, source) -> bool:
 
 
 class GatewayTurnPersistenceMixin:
+    def _turn_silence_allowed(self, source, display_kind, reply_expected, answered_message_id) -> bool:
+        """Whether a bare silence marker may stand for the turn answering ``answered_message_id``:
+        machinery and unaddressed turns may stay silent, and so may a turn whose message already
+        shows the agent's own reaction (``adapter.agent_reaction``) — the reaction IS its reply."""
+        from gateway.response_filters import silence_allowed
+        if silence_allowed(display_kind, reply_expected):
+            return True
+        if not answered_message_id:
+            return False
+        reaction = getattr(self._delivery_adapter_for(source), "agent_reaction", None)
+        return callable(reaction) and bool(reaction(source.chat_id, str(answered_message_id)))
+
     async def _hmwa_shape_agent_response(
         self, agent_result, source, history, session_entry, session_key,
         _quick_key, run_generation, _run_start_session_id, _platform_name, _msg_start_time,
@@ -75,13 +87,15 @@ class GatewayTurnPersistenceMixin:
             response = ""
         _intentional_silence = self._is_intentional_silence(agent_result, response)
         # A queued (/queue) chain's TERMINAL turn owns the silence verdict, not the event that
-        # opened the chain: an internal follow-up, or a message not addressed to the bot, may go
-        # silent; any other human one must not.
-        from gateway.response_filters import is_machinery_display_kind, silence_allowed
+        # opened the chain: an internal follow-up, a message not addressed to the bot, or one the
+        # agent answered with a reaction may go silent; any other human one must not.
+        from gateway.response_filters import is_machinery_display_kind
         from gateway.run_turn import _unexpected_silence_reply
         _silence_kind = agent_result.get("queued_terminal_display_kind", persist_user_display_kind)
         _silence_reply_expected = agent_result.get("queued_terminal_reply_expected", reply_expected)
-        if _intentional_silence and not silence_allowed(_silence_kind, _silence_reply_expected):
+        _answered_id = agent_result.get("queued_terminal_inbound_id", source.message_id)
+        if _intentional_silence and not self._turn_silence_allowed(
+                source, _silence_kind, _silence_reply_expected, _answered_id):
             logger.warning(
                 "silence marker rejected on a user turn: platform=%s chat=%s",
                 _platform_name, source.chat_id or "unknown",
@@ -90,7 +104,7 @@ class GatewayTurnPersistenceMixin:
             response = _unexpected_silence_reply()
         elif _intentional_silence and not is_machinery_display_kind(_silence_kind):
             logger.debug(
-                "silence marker suppressed on an unaddressed turn: platform=%s chat=%s",
+                "silence marker kept on an unaddressed or reacted-to turn: platform=%s chat=%s",
                 _platform_name, source.chat_id or "unknown",
             )
 

@@ -193,8 +193,9 @@ class GatewayTurnProgressMixin:
             # numbered-text fallback), so a progress bubble is pure duplication — and in verbose mode it
             # dumps the raw tool-call args JSON into the chat. Because
             # the progress queue drains on a background task, that raw JSON typically lands right underneath
-            # the rendered prompt (#52374).
-            or tool_name == "clarify"
+            # the rendered prompt (#52374). Likewise ``react``: the emoji on the message IS the rendering,
+            # and a bubble would add the very chat noise a reaction replaces.
+            or tool_name in ("clarify", "react")
             or self._agent_interrupted()
         ):
             return

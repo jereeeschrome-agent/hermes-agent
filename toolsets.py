@@ -148,6 +148,15 @@ TOOLSETS = {
         ["manage_catalog"],
         platforms=frozenset({"desktop"}),
     ),
+    # Native emoji reaction on the chat message a messaging turn answers. A platform joins
+    # ``platforms`` once its adapter implements add_reaction/remove_reaction plus agent_reaction (what
+    # lets a reaction-only turn stay silent). Session-gated, so it is never deferred behind
+    # tool_search: a reaction only gets used when it is ambient, like clarify.
+    "chat_reactions": _ts(
+        "React with an emoji to the chat message being answered (WhatsApp DMs and groups)",
+        ["react"],
+        platforms=frozenset({"whatsapp"}),
+    ),
     "clarify": _ts("Ask the user clarifying questions (multiple-choice or open-ended)", ["clarify"]),
     "code_execution": _ts("Run Python scripts that call tools programmatically (reduces LLM round trips)", ["execute_code"]),
     "delegation": _ts("Spawn subagents with isolated context for complex subtasks", ["delegate_task"]),
@@ -206,7 +215,8 @@ TOOLSETS = {
         "command approval)",
         ["discord", "discord_admin"],
     ),
-    "hermes-whatsapp": _bundle("WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)"),
+    "hermes-whatsapp": _bundle(
+        "WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)", ["react"]),
     "hermes-slack": _bundle("Slack bot toolset - full access for workspace use (terminal has safety checks)"),
     "hermes-signal": _bundle("Signal bot toolset - encrypted messaging platform (full access)"),
     "hermes-bluebubbles": _bundle("BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server"),

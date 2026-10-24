@@ -11,6 +11,7 @@
  *   POST /edit           - Edit a sent message { chatId, messageId, message }
  *   POST /send-media     - Send media natively { chatId, filePath, mediaType?, caption?, fileName?, mentions? }
  *   POST /send-location  - Send location pin { chatId, latitude, longitude, name?, address? }
+ *   POST /react          - React to a message { chatId, messageId, emoji } ("" removes ours)
  *   POST /typing         - Send typing indicator { chatId }
  *   GET  /chat/:id       - Get chat info
  *   GET  /health         - Health check
@@ -36,6 +37,7 @@ import { classifyOwnerMessageGate } from './owner_message_gate.js';
 import {
   addMentions,
   buildPollPayload,
+  buildReactionPayload,
   createReconnectScheduler,
   createVersionResolver,
   installConsoleStamps,
@@ -1055,6 +1057,33 @@ app.post('/send-location', async (req, res) => {
     res.json({ success: true, messageId: sent?.key?.id });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// React to a message in a DM or group; an empty emoji removes our reaction.
+app.post('/react', async (req, res) => {
+  if (!sock || connectionState !== 'connected') {
+    return res.status(503).json({ error: 'Not connected to WhatsApp' });
+  }
+
+  let reaction;
+  try {
+    const { chatId, messageId, emoji } = req.body;
+    reaction = buildReactionPayload({
+      chatId, messageId, emoji, messageStore, selfChat: WHATSAPP_MODE === 'self-chat',
+    });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  try {
+    const sent = await sendWithTimeout(reaction.jid, reaction.content);
+    // The reaction echoes back as a fromMe upsert; tracking its id keeps a self-chat
+    // echo from reaching the agent as a new message.
+    trackSentMessageId(sent);
+    res.json({ success: true, messageId: sent?.key?.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

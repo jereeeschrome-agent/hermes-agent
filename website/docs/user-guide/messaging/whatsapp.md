@@ -305,6 +305,22 @@ Set `text_batch_delay_seconds: 0` to dispatch each message immediately (disables
 
 Replying to (quoting) an earlier message gives the agent the quoted text as context. Quoting an image, voice note, video or document also attaches that file to the turn, so "what is this?" under a quoted image works — whether the attachment came from another person or from the bot itself (a cron-delivered chart, a generated image). WhatsApp only ships a thumbnail stub with a quote, so the file is resolved from the bridge's download cache (inbound media, in-memory for the bridge's lifetime) or from a local index of the bot's own sends (last 1000 messages); quotes of anything older arrive without the attachment.
 
+### Reactions
+
+The agent can react to a message with an emoji the way a person would: a ❤️ for a thank-you, a 👍 for a plan it's on board with, a 😂 for a joke. This works in DMs and in groups (Baileys bridge). When the reaction says it all, the agent sends no text, so the chat stays quiet. When the message still needs an answer, it reacts and replies as usual.
+
+- The reaction lands on the message the agent is answering. In a group, that's the message that addressed the bot.
+- WhatsApp keeps one reaction per person per message, so a new emoji replaces the agent's. The agent can also remove its own.
+- Reacting is the agent's call. It has a `react` tool that exists only in WhatsApp sessions, and reactions never show up as tool-progress messages.
+
+To turn agent reactions off:
+
+```yaml
+# ~/.hermes/config.yaml
+agent:
+  disabled_toolsets: [chat_reactions]
+```
+
 ---
 
 ## Troubleshooting
